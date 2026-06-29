@@ -1,42 +1,75 @@
-# IRC PL code base
+# CORE-noVNC
 
-## Repository content
-1. run-docker.sh - Shell script to run a dockerized version of [Common Open Research Emulator (CORE)](https://coreemu.github.io/core/).
-2. Dockerfile - The dockerfile used to generate the CORE docker
-3. password.txt - Text file used on image build to create a password for root user in CORE docker image 
+# Repository content
+The repository is meant to run CORE with a noVNC web UI, either from a published GHCR image or from a local Docker build.
 
-### run-docker.sh
-The run-docker.sh script uses by default the [vinicf/core-9.0.3:latest](https://hub.docker.com/r/vinicf/core-9.0.3) CORE image. 
+The image has CORE 9.2.1 installed with dependencies for running several services, such as SSH, HTML, FTP, telnet, etc.
+It has been created using the Dockerfile available in this repo.
 
-The image has CORE 9.0.3 installed with all IRC TP dependencies (check the Dockerfile for reference).
+Scripts:
+- manage-container.sh starts, stops, inspects, and tails the running container.
 
-The script  runs a container and it also does the following:
-- Creates a shared volume defined in *SHARED* variable ($SHARED:/shared).
-- Shares the host display to run core-gui.
-- Forwards the host's *2000* port to container's 22, enabling external ssh access.
-- Injects the *~/.ssh/id_ed25519.pub* as an authorized host key (it does not create the keypair previously).
+The runtime script does the following:
+- Creates a shared volume defined in SHARED variable ($SHARED:/shared).
+- Exposes the CORE GUI through noVNC on http://127.0.0.1:6080/vnc.html.
+- Can optionally forward the host's 2022 port to container's 22 when started with `--ssh`.
 
-#### How to run it
-- Clone the repo into your home directory (it uses $HOME as a path reference for the shared directory):
-    - `git clone https://github.com/vinicf/IRC.git`
-- Step into the cloned directory:
-    - `cd ./IRC/`
-- If you do not have an id_ed25519 and id_ed25519.pub key pairs, create it using the command:
-    - `ssh-keygen -t ed25519`
-- Make sure the run-docker.sh has execute permissions, recommended permissions:
-    - `chmod 740 run-docker.sh`
-- Run the run-docker.sh script:
-    - `./run-docker.sh`
+
+## How to run it
+- Clone the repository anywhere you want.
+- Make sure the script has execute permissions: chmod 740 manage-container.sh
+- Show the available commands and usage: `./manage-container.sh --help`
+- Run the container with the default GHCR image: `./manage-container.sh start`
+- Run the container with optional SSH access: `./manage-container.sh start --ssh`
+- Stop the running container cleanly: `./manage-container.sh stop`
+- Check whether the container is running: `./manage-container.sh status`
+- Follow the container logs again later: `./manage-container.sh logs`
 - ENJOY
 
-#### What else
-- You can access the container via ssh, using the ~/.ssh/id_ed25519 key. E.g. if you are running it in your localhost:
-    - `ssh -i ~/.ssh/id_ed25519 root@127.0.0.1 -p 2000`
-- The default container's root password is **core**
-- You can exchange files between container and host machine using the shared volume. Anything in your host $SHARED dir is accessible via container's /shared dir, and vice-versa.
+## Image selection
+- By default, `manage-container.sh` uses `ghcr.io/vinicf/core-novnc:latest`.
+- Override the image at runtime with `CORE_IMAGE=<image-ref>`.
+- The script automatically tries `docker pull` when the selected image is not present locally.
 
-### Dockerfile
-- You can use the Dockerfile to create your own image, adding more libs, software, etc. Just remember to update the image in run-docker.sh script to run your custom one.
-- This Dockerfile uses docker buildx to enable multi-platform building and uses a secret to configure the user password, which is stored in password.txt file.
-- To build it for a specific platform, use the --platform option and use the password.txt file as a secret. To build for amd64 and arm64:
-    - `docker buildx build --secret id=my_password,src=password.txt --platform linux/amd64,linux/arm64 .`
+## Local build workflow
+- Build a local image from this repository with:
+    - `docker build -t core-novnc:local .`
+- Run that local image with:
+    - `CORE_IMAGE=core-novnc:local ./manage-container.sh start`
+- You can also combine it with SSH:
+    - `CORE_IMAGE=core-novnc:local ./manage-container.sh start --ssh`
+
+## Publishing to GHCR
+- Authenticate Docker to GHCR:
+    - First, create a [Personal Access Token (classic)](https://github.com/settings/tokens/new) with the `write:packages` and `read:packages` scopes.
+    - `echo <github-token> | docker login ghcr.io -u <github-user> --password-stdin`
+- Build the image with the GHCR tag:
+    - `docker build -t ghcr.io/vinicf/core-novnc:latest .`
+- Push it:
+    - `docker push ghcr.io/vinicf/core-novnc:latest`
+- For versioned releases, tag explicitly before pushing, for example:
+    - `docker tag ghcr.io/vinicf/core-novnc:latest ghcr.io/vinicf/core-novnc:9.2.1`
+    - `docker push ghcr.io/vinicf/core-novnc:9.2.1`
+
+## Codespaces
+- Codespaces should use the prebuilt GHCR image instead of compiling the whole stack during startup.
+- The default `manage-container.sh start` path is already aligned with that model.
+- If you need a different remote tag for a classroom or lab, set `CORE_IMAGE` in the Codespace environment.
+
+## What else
+- You can exchange files between container and host machine using the shared volume. Anything in your host $SHARED dir is accessible via container's /shared dir, and vice-versa.
+- You can use the Dockerfile to create your own image, adding more libs or software, and point `manage-container.sh` to it with `CORE_IMAGE`.
+
+## Optional SSH access
+- SSH is disabled by default. Enable it only when needed with: `./manage-container.sh start --ssh`
+- After the container is running, install a public key as authorized_keys, and use the private key to access the container via ssh.
+- The example below uses the key pair named id_ed25519 (private) and id_ed25519 (public) under ~/.ssh/ dir. If you use a different keypair, replace ~/.ssh/id_ed25519.pub and the matching private key path in the commands.
+- Adding the key:
+    - `docker exec -i core sh -c 'umask 077; mkdir -p /root/.ssh; cat >> /root/.ssh/authorized_keys' < ~/.ssh/id_ed25519.pub`
+- Then connect:
+    - `ssh -i ~/.ssh/id_ed25519 root@127.0.0.1 -p 2022`
+
+## Custom services
+- start-up.sh is the runtime hook that points CORE to /shared so you can mount custom services when you start a new container.
+- start-up.sh should stay. It is still the container entrypoint that wires `/shared` into CORE, conditionally starts `sshd`, and launches Xvfb, noVNC, `core-daemon`, and `core-gui`.
+- You could inline that logic into the Dockerfile only by replacing it with a long shell `CMD` or another embedded script, which would be harder to maintain. Keeping start-up.sh is the cleaner option.

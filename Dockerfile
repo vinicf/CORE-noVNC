@@ -1,12 +1,12 @@
 FROM ubuntu:22.04
-LABEL Description="CORE 9.0.3 Docker Ubuntu Image"
+LABEL Description="CORE 9.2.1 Docker Ubuntu Image"
 
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM" > /log
 ARG PREFIX=/usr/local
-ARG BRANCH=release-9.0.3
+ARG BRANCH=release-9.2.1
 ARG PROTOC_VERSION=3.19.6
 ARG VENV_PATH=/opt/core/venv
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,7 +58,13 @@ RUN apt-get install -y --no-install-recommends \
     nmap \
     telnet \
     traceroute \
-    curl
+    curl \
+    xvfb \
+    x11vnc \
+    novnc \
+    websockify \
+    openbox \
+    xterm
 
 RUN apt-get autoremove -y
 
@@ -95,8 +101,11 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     rm -rf emane && \
     rm -f protoc-${PROTOC_VERSION}-linux-x86_64.zip
 
+COPY ./start-up.sh /opt/core/
+RUN chmod +x /opt/core/start-up.sh
 RUN mkdir /var/run/sshd &&  sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config &&     sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config &&     sed -i 's/#X11UseLocalhost yes/X11UseLocalhost no/' /etc/ssh/sshd_config &&     sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd # buildkit
-RUN --mount=type=secret,id=my_password \
-    echo "root:$(cat /run/secrets/my_password)" | chpasswd
-ENV SSHKEY=
+ENV ENABLE_SSH=0
+ENV DISPLAY=:1
+EXPOSE 22 50051 6080 5900
 WORKDIR /root
+ENTRYPOINT ["/opt/core/start-up.sh"]
